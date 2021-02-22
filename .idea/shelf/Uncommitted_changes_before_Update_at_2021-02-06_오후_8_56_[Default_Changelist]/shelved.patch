@@ -1,0 +1,436 @@
+Index: app.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>\r\nfrom flask import Flask,render_template,request,jsonify,session\r\nfrom flask_restful import Api\r\nfrom flask_cors import CORS\r\nfrom places.matzip import Matzip\r\nfrom places.janggwan import JangGwan\r\nimport os\r\nimport dialogflow\r\nimport uuid#세션아이디로 사용\r\nfrom settings.config import DIALOG_CONFIG#프로젝트 아이디/API키가 설정된 모듈 import\r\n\r\n#플라스크 앱 생성\r\n# Flask 객체 선언, 파라미터로 어플리케이션 패키지의 이름을 넣어줌.\r\napp = Flask(__name__)\r\n#JSON 응답 한글 처리\r\napp.config['JSON_AS_ASCII']=False\r\n#CORS에러 처리\r\n# 데코레이터 이용, '/hello' 경로에 클래스 등록\r\nCORS(app)\r\n#플라스크 앱을 인자로 하여 Api객체 생성:클래스와 URI매핑\r\n# Flask 객체에 Api 객체 등록\r\napi = Api(app)\r\n\r\n#별 추가 \r\napp.config['JSON_AS_ASCII'] = False\r\n#session을 위한 시크릿 키 설정:임의의 문자열- 세션에 값 설정시 반드시 필요\r\napp.secret_key='dfgsdfg@$shfdsg&sfdsafh'\r\n\r\n#GOOGLE_APPLICATION_CREDENTIALS키워드에 대한 설명:https://dialogflow.com/docs/reference/v2-auth-setup\r\n#                                                ->https://cloud.google.com/docs/authentication/getting-started(2021.01.13기준)\r\n#환경 변수 GOOGLE_APPLICATION_CREDENTIALS를 설정하여 애플리케이션 코드에 사용자 인증 정보를 제공\r\n#API키를 환경변수로 등록\r\nos.environ['GOOGLE_APPLICATION_CREDENTIALS']=DIALOG_CONFIG['GOOGLE_APPLICATION_CREDENTIALS']\r\n#별 추가  끝 \r\n\r\n\r\n#요청을 처리할 클래스와 요청 uri 매핑(라우팅)\r\n#Api객체.add_resource(클래스명,'/요청url')\r\n#/todos/<todo_id> url 패턴이면\r\n#get방식이면 todo_id로 조회\r\n#delete방식이면 todo_id로 삭제\r\n#put방식이면 todo_id로 수정\r\n#api.add_resource(Matzip,'/shoong/<lat>/<lng>')\r\napi.add_resource(Matzip,'/places/matzip')\r\n#api.add_resource(JangGwan,'/places/janggwan')\r\n#/todos 로 요청시 get방식이면 전체조회\r\n#                post방식이면 할일 등록\r\n#api.add_resource(TodoList,'/todos')\r\n#api.add_resource(Upload,'/upload')\r\n\r\nif __name__ =='__main__':\r\n    app.run(port=10004,host='0.0.0.0')\r\n\r\n\r\n\r\n#별추가 : 테스트완료 추후 완료후 추가 하겠음\r\n@app.route('/message',methods=['GET'])\r\ndef handleMessage():#사용자 UI(Client App)에서 보낸 대화를 받는 함수\r\n              #받은 대화는 다시 DialogFlow로 보낸다\r\n\r\n    session['session_id'] = str(uuid.uuid4())#다른 어플리케이션의 UI사용시\r\n    message= request.values.get('message')\r\n\r\n\r\n    print('사용자 UI(Client App)에서 입력한 메시지:',message)\r\n    #프로젝트 아이디 가져오기\r\n    project_id = DIALOG_CONFIG.get('PROJECT_ID')\r\n    #플라스크앱이  다얼로그 플로우로부터 받은 응답\r\n    fulfillmentText = response_from_dialogflow(project_id,session['session_id'],message,'ko')\r\n\r\n    #다이얼로그로부터 받은 응답을 클라이언트 App(사용자 UI)에 전송\r\n    return jsonify({'message':fulfillmentText})\r\n\r\n\r\ndef response_from_dialogflow(project_id, session_id, message, language_code):\r\n    # step1. DialogFlow와 사용자가 상호작용할 세션 클라이언트 생성\r\n    session_client = dialogflow.SessionsClient()\r\n    session_path = session_client.session_path(project_id, session_id)\r\n    # projects/프로젝트아이디/agent/sessions/세션아이디 로 생성된다\r\n    print('[session_path]', session_path, sep='\\n')\r\n    if message:  # 사용자가 대화를 입력한 경우.대화는 utf-8로 인코딩된 자연어.256자를 넘어서는 안된다\r\n        # step2.사용자 메시지(일반 텍스트)로 TextInput생성\r\n        text_input = dialogflow.types.TextInput(text=message, language_code=language_code)\r\n        print('[text_input]', text_input, sep='\\n')\r\n        '''\r\n        text : '사용자가 입력한 대화'\r\n        language_code :'ko'        \r\n        '''\r\n        # step 3. 생성된 TextInput객체로 QueryInput객체 생성(DialogFlow로 전송할 질의 생성)\r\n        query_input = dialogflow.types.QueryInput(text=text_input)\r\n        print('[query_input]', query_input, sep='\\n')\r\n        '''\r\n        text {\r\n                text : '사용자가 입력한 대화'\r\n                language_code :'ko'\r\n             }        \r\n        '''\r\n        # step 4. DialogFlow로 SessionsClient객체.detect_intent()메소드로\r\n        #        QueryInput객체를 보내고 다시 봇 응답(Responses섹션에 등록한 대화)을 받는다\r\n        #        즉 A DetectIntentResponse instance반환\r\n        '''\r\n        PermissionDenied : 403 IAM 권한 에러시\r\n        1. GOOGLE DEVELOPER CONSOLE로 검색후 \r\n           좌측 상단 Google APIs 옆 프로젝트 목록에서 해당 프로젝트 선택 \r\n        2. 좌측의 사용자 인증 정보 클릭\r\n        3. 서비스 계정의 이메일 클릭->IAM 및 관리자\r\n        4. IAM 및 관리자 페이지의 좌측의 IAM메뉴 클릭\r\n        5. 상단의  추가 메뉴 클릭\r\n        6. 구성원 항목에는 서비스 계정 생성시 다운받은 mytravelbot-vbem-cf60a98145b6.json파일의 \r\n           \"client_email\"키의 값을 복사하여 넣는다\r\n           역할 항목에는 \"소유자\"를 선택하여 넣는다.    \r\n\r\n        '''\r\n        response = session_client.detect_intent(session=session_path, query_input=query_input)\r\n        print('[response]', response, sep='\\n')\r\n        print('[type(response)]', type(response), sep='\\n')  # DetectIntentResponse타입\r\n\r\n    return response.query_result.fulfillment_text  # 다이얼로그플로우 봇이 응답한 텍스트\r\n\r\n\r\n# 아래 웹 후크용 메소드는 추가적으로 나만의 응답(데이타베이스에서 읽어오거나)\r\n# 을 구성하고자 할때 사용.웹 후크를 사용하지 않아도 우리가 다이얼로그 플랫폼에\r\n# 등록한 사용자 질의문과 응답으로도 충분히 나만의 챗봇을 만들 수 있다\r\n\r\n# 웹 후크 서비스 : 즉 다이얼로그 플로우가 인텐트 매칭후\r\n# 아래 API서비스(웹 후크)를 POST로 요청한다\r\n# 전제조건\r\n# 1. 웹 후크를 적용할 인텐트 선택후 fulfillment메뉴에서 enable설정\r\n# 2. 해당 봇의 죄측 메뉴인 fullfillments탭에서 아래 url을  등록(loccalhost 및 http는 불가)\r\n\r\n@app.route('/webhook_rpa', methods=['POST'])\r\ndef webhook():  # fulfillment를 enable로 설정한 인텐트로 진입했을때 DialogFlow가 이 URL 요청\r\n    # 다이얼로그 플로우에서 json으로 응답을 보낸다\r\n    webhook_response = request.get_json(force=True)\r\n    print('[webhook_response]', webhook_response, sep='\\n')\r\n    # 아래는 챗봇 UI에 사용자가 입력한 Full text\r\n    # query = webhook_response['queryResult']['queryText']#사용자 입력분 예]크롬 실행해 주세요\r\n    # 아래는 엔터티 즉 파라미터명으로  값 추출\r\n    # 대표 엔터티명으로 비교하면된다(그럼 모든 동의어도 처리가 된다)\r\n    # 아래에서 'program'은 개발자 정의 엔터티\r\n    program = webhook_response['queryResult']['parameters']['program']\r\n    if '엑셀' in program:\r\n        # https://openpyxl.readthedocs.io/en/stable/\r\n        from openpyxl.workbook import Workbook\r\n        wb = Workbook()\r\n        sheet1 = wb['Sheet']\r\n        sheet1.title = '오늘 할일'\r\n        sheet1['A1'] = '오늘의 할 일 리스트'\r\n        sheet1.append(['1.', '이메일 보내기'])\r\n        sheet1.append(['2.', '고객명단 정리하기'])\r\n\r\n        sheet2 = wb.create_sheet('내일 할일')\r\n        sheet2.cell(row=1, column=1, value='내일의 할 일 리스트')\r\n        # 작성 내용 엑셀 파일로 저장\r\n        wb.save('todos.xlsx')\r\n        # 엑셀 실행\r\n        os.startfile('todos.xlsx')\r\n        reply = {'fulfillmentText': '엑셀 실행합니다'}  # DialogFlow에 JSON으로 응답(키값은 반드시 'fulfillmentText')\r\n\r\n    elif '브라우저' == program:\r\n        import webbrowser\r\n        webbrowser.open_new('https://www.google.com')\r\n        reply = {'fulfillmentText': '브라우저 실행합니다'}\r\n    else:\r\n        reply = {'fulfillmentText': 'I cannot execute {}'.format(program)}\r\n\r\n    return jsonify(reply)\r\n\r\n#별 추가 테스트 끝
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/app.py b/app.py
+--- a/app.py	(revision dc1335a4f9ce3205870be281516e339a14e0c850)
++++ b/app.py	(date 1612607383511)
+@@ -1,3 +1,6 @@
++import json
++import requests
++from bs4 import BeautifulSoup
+ 
+ from flask import Flask,render_template,request,jsonify,session
+ from flask_restful import Api
+@@ -8,6 +11,8 @@
+ import dialogflow
+ import uuid#세션아이디로 사용
+ from settings.config import DIALOG_CONFIG#프로젝트 아이디/API키가 설정된 모듈 import
++from google.protobuf.json_format import MessageToJson   #costom playlode에 필요
++
+ 
+ #플라스크 앱 생성
+ # Flask 객체 선언, 파라미터로 어플리케이션 패키지의 이름을 넣어줌.
+@@ -33,7 +38,6 @@
+ os.environ['GOOGLE_APPLICATION_CREDENTIALS']=DIALOG_CONFIG['GOOGLE_APPLICATION_CREDENTIALS']
+ #별 추가  끝 
+ 
+-
+ #요청을 처리할 클래스와 요청 uri 매핑(라우팅)
+ #Api객체.add_resource(클래스명,'/요청url')
+ #/todos/<todo_id> url 패턴이면
+@@ -53,7 +57,7 @@
+ 
+ 
+ 
+-#별추가 : 테스트완료 추후 완료후 추가 하겠음
++#별추가 :
+ @app.route('/message',methods=['GET'])
+ def handleMessage():#사용자 UI(Client App)에서 보낸 대화를 받는 함수
+               #받은 대화는 다시 DialogFlow로 보낸다
+@@ -61,15 +65,14 @@
+     session['session_id'] = str(uuid.uuid4())#다른 어플리케이션의 UI사용시
+     message= request.values.get('message')
+ 
+-
+     print('사용자 UI(Client App)에서 입력한 메시지:',message)
++
+     #프로젝트 아이디 가져오기
+     project_id = DIALOG_CONFIG.get('PROJECT_ID')
+     #플라스크앱이  다얼로그 플로우로부터 받은 응답
+-    fulfillmentText = response_from_dialogflow(project_id,session['session_id'],message,'ko')
+-
++    returnjson = response_from_dialogflow(project_id,session['session_id'],message,'ko')
+     #다이얼로그로부터 받은 응답을 클라이언트 App(사용자 UI)에 전송
+-    return jsonify({'message':fulfillmentText})
++    return returnjson
+ 
+ 
+ def response_from_dialogflow(project_id, session_id, message, language_code):
+@@ -82,88 +85,117 @@
+         # step2.사용자 메시지(일반 텍스트)로 TextInput생성
+         text_input = dialogflow.types.TextInput(text=message, language_code=language_code)
+         print('[text_input]', text_input, sep='\n')
+-        '''
+-        text : '사용자가 입력한 대화'
+-        language_code :'ko'        
+-        '''
++
+         # step 3. 생성된 TextInput객체로 QueryInput객체 생성(DialogFlow로 전송할 질의 생성)
+         query_input = dialogflow.types.QueryInput(text=text_input)
+         print('[query_input]', query_input, sep='\n')
+-        '''
+-        text {
+-                text : '사용자가 입력한 대화'
+-                language_code :'ko'
+-             }        
+-        '''
+-        # step 4. DialogFlow로 SessionsClient객체.detect_intent()메소드로
+-        #        QueryInput객체를 보내고 다시 봇 응답(Responses섹션에 등록한 대화)을 받는다
+-        #        즉 A DetectIntentResponse instance반환
+-        '''
+-        PermissionDenied : 403 IAM 권한 에러시
+-        1. GOOGLE DEVELOPER CONSOLE로 검색후 
+-           좌측 상단 Google APIs 옆 프로젝트 목록에서 해당 프로젝트 선택 
+-        2. 좌측의 사용자 인증 정보 클릭
+-        3. 서비스 계정의 이메일 클릭->IAM 및 관리자
+-        4. IAM 및 관리자 페이지의 좌측의 IAM메뉴 클릭
+-        5. 상단의  추가 메뉴 클릭
+-        6. 구성원 항목에는 서비스 계정 생성시 다운받은 mytravelbot-vbem-cf60a98145b6.json파일의 
+-           "client_email"키의 값을 복사하여 넣는다
+-           역할 항목에는 "소유자"를 선택하여 넣는다.    
+ 
+-        '''
+         response = session_client.detect_intent(session=session_path, query_input=query_input)
+         print('[response]', response, sep='\n')
+-        print('[type(response)]', type(response), sep='\n')  # DetectIntentResponse타입
+-
+-    return response.query_result.fulfillment_text  # 다이얼로그플로우 봇이 응답한 텍스트
++        # 가공 _ code에 따라서 실행이 달라짐 1 : 단순응답 (변화 필요) 2: 날씨 응답(파이썬)  3: 자전거가게 (스프링에서 처리, 고객 주소 필요)
++        res = MessageToJson(response)#응답받고
++        res = json.loads(res)#json으로 변환하여 결과값을 빼낼 수 있는 상태로
+ 
++        isCode = is_json_key_present(res) #code 값 존재여부 판단/
++        print(isCode)
++        if isCode :
++            code = res['queryResult']['fulfillmentMessages'][0]['payload']['code']
+ 
+-# 아래 웹 후크용 메소드는 추가적으로 나만의 응답(데이타베이스에서 읽어오거나)
+-# 을 구성하고자 할때 사용.웹 후크를 사용하지 않아도 우리가 다이얼로그 플랫폼에
+-# 등록한 사용자 질의문과 응답으로도 충분히 나만의 챗봇을 만들 수 있다
++            if code == "2":# 날씨
++                location = res['queryResult']['fulfillmentMessages'][0]['payload']['location']
++                time = res['queryResult']['fulfillmentMessages'][0]['payload']['time']
++                print(location)
++                weatherInfo =  get_weather_info(location,time,code)
++                return weatherInfo
+ 
+-# 웹 후크 서비스 : 즉 다이얼로그 플로우가 인텐트 매칭후
+-# 아래 API서비스(웹 후크)를 POST로 요청한다
+-# 전제조건
+-# 1. 웹 후크를 적용할 인텐트 선택후 fulfillment메뉴에서 enable설정
+-# 2. 해당 봇의 죄측 메뉴인 fullfillments탭에서 아래 url을  등록(loccalhost 및 http는 불가)
++            elif code == "3":
++                msg = res['queryResult']['fulfillmentMessages'][0]['payload']['msg']
++                return jsonify({'code': code, 'msg': msg})
+ 
+-@app.route('/webhook_rpa', methods=['POST'])
+-def webhook():  # fulfillment를 enable로 설정한 인텐트로 진입했을때 DialogFlow가 이 URL 요청
+-    # 다이얼로그 플로우에서 json으로 응답을 보낸다
+-    webhook_response = request.get_json(force=True)
+-    print('[webhook_response]', webhook_response, sep='\n')
+-    # 아래는 챗봇 UI에 사용자가 입력한 Full text
+-    # query = webhook_response['queryResult']['queryText']#사용자 입력분 예]크롬 실행해 주세요
+-    # 아래는 엔터티 즉 파라미터명으로  값 추출
+-    # 대표 엔터티명으로 비교하면된다(그럼 모든 동의어도 처리가 된다)
+-    # 아래에서 'program'은 개발자 정의 엔터티
+-    program = webhook_response['queryResult']['parameters']['program']
+-    if '엑셀' in program:
+-        # https://openpyxl.readthedocs.io/en/stable/
+-        from openpyxl.workbook import Workbook
+-        wb = Workbook()
+-        sheet1 = wb['Sheet']
+-        sheet1.title = '오늘 할일'
+-        sheet1['A1'] = '오늘의 할 일 리스트'
+-        sheet1.append(['1.', '이메일 보내기'])
+-        sheet1.append(['2.', '고객명단 정리하기'])
++            elif code == "4":
++                return jsonify({'code': code})
+ 
+-        sheet2 = wb.create_sheet('내일 할일')
+-        sheet2.cell(row=1, column=1, value='내일의 할 일 리스트')
+-        # 작성 내용 엑셀 파일로 저장
+-        wb.save('todos.xlsx')
+-        # 엑셀 실행
+-        os.startfile('todos.xlsx')
+-        reply = {'fulfillmentText': '엑셀 실행합니다'}  # DialogFlow에 JSON으로 응답(키값은 반드시 'fulfillmentText')
+-
+-    elif '브라우저' == program:
+-        import webbrowser
+-        webbrowser.open_new('https://www.google.com')
+-        reply = {'fulfillmentText': '브라우저 실행합니다'}
+-    else:
+-        reply = {'fulfillmentText': 'I cannot execute {}'.format(program)}
++        else :
++            return jsonify({'code': '1' ,'msg':response.query_result.fulfillment_text})
++
+ 
+-    return jsonify(reply)
+ 
+-#별 추가 테스트 끝
+\ No newline at end of file
++# 다이얼로그플로우 봇이 응답한 텍스트
++def is_json_key_present(json):
++        try:
++            buf = json['queryResult']['fulfillmentMessages'][0]['payload']['code']
++        except KeyError:
++            return False
++
++        return True
++
++def get_weather_info(location,time,code):
++    Finallocation = location + '날씨'
++    LocationInfo = ""
++    NowTemp = ""
++    CheckDust = []
++    url = 'https://search.naver.com/search.naver?where=nexearch&sm=top_hty&fbm=1&ie=utf8&query=' + Finallocation
++    hdr = {'User-Agent': (
++        'mozilla/5.0 (windows nt 10.0; win64; x64) applewebkit/537.36 (khtml, like gecko) chrome/78.0.3904.70 safari/537.36')}
++    req = requests.get(url, headers=hdr)
++    html = req.text
++    soup = BeautifulSoup(html,'html.parser')
++
++    #에러 체크
++    ErrorCheck = soup.find('span', {'class' : 'btn_select'})
++    if 'None' in str(ErrorCheck):
++        print("지역 검색 오류!")
++
++    else:
++        # 지역 정보
++        for i in soup.select('span[class=btn_select]'):
++            LocationInfo = i.text
++
++        # 현재 온도
++        NowTemp = soup.find('span', {'class': 'todaytemp'}).text + soup.find('span', {'class' : 'tempmark'}).text[2:]
++        # 날씨 캐스트
++        WeatherCast = soup.find('p', {'class' : 'cast_txt'}).text
++        # 자외선 지수
++        TodayUV = soup.find('span', {'class' : 'indicator'}).text[4:-2] + " " + soup.find('span', {'class' : 'indicator'}).text[-2:]
++        # 미세먼지, 초미세먼지, 오존 지수
++        CheckDust1 = soup.find('div', {'class': 'sub_info'})
++        CheckDust2 = CheckDust1.find('div', {'class': 'detail_box'})
++        for i in CheckDust2.select('dd'):
++            CheckDust.append(i.text)
++        FineDust = CheckDust[0][:-2] + " " + CheckDust[0][-2:]
++        UltraFineDust = CheckDust[1][:-2] + " " + CheckDust[1][-2:]
++        Ozon = CheckDust[2][:-2] + " " + CheckDust[2][-2:]
++
++        # 내일 오전, 오후 온도 및 상태 체크
++        tomorrowArea = soup.find('div', {'class': 'tomorrow_area'})
++        tomorrowCheck = tomorrowArea.find_all('div', {'class': 'main_info morning_box'})
++
++        # 내일 오전온도
++        tomorrowMoring1 = tomorrowCheck[0].find('span', {'class': 'todaytemp'}).text
++        tomorrowMoring2 = tomorrowCheck[0].find('span', {'class' : 'tempmark'}).text[2:]
++        tomorrowMoring = tomorrowMoring1 + tomorrowMoring2
++        #내일 오전상태
++        tomorrowMState1 = tomorrowCheck[0].find('div', {'class' : 'info_data'})
++        tomorrowMState2 = tomorrowMState1.find('ul', {'class' : 'info_list'})
++        tomorrowMState3 = tomorrowMState2.find('p', {'class' : 'cast_txt'}).text
++        tomorrowMState4 = tomorrowMState2.find('div', {'class' : 'detail_box'})
++        tomorrowMState5 = tomorrowMState4.find('span').text.strip()
++        tomorrowMState = tomorrowMState3 + " " + tomorrowMState5
++        # 내일 오후온도
++        tomorrowAfter1 = tomorrowCheck[1].find('p', {'class' : 'info_temperature'})
++        tomorrowAfter2 = tomorrowAfter1.find('span', {'class' : 'todaytemp'}).text
++        tomorrowAfter3 = tomorrowAfter1.find('span', {'class' : 'tempmark'}).text[2:]
++        tomorrowAfter = tomorrowAfter2 + tomorrowAfter3
++       # 내일 오후상태
++        tomorrowAState1 = tomorrowCheck[1].find('div', {'class' : 'info_data'})
++        tomorrowAState2 = tomorrowAState1.find('ul', {'class' : 'info_list'})
++        tomorrowAState3 = tomorrowAState2.find('p', {'class' : 'cast_txt'}).text
++        tomorrowAState4 = tomorrowAState2.find('div', {'class' : 'detail_box'})
++        tomorrowAState5 = tomorrowAState4.find('span').text.strip()
++        tomorrowAState = tomorrowAState3 + " " + tomorrowAState5
++        if time=='today':
++            resultMsg="["+location+"]"+" 현재 날씨 정보는 아래와 같습니다."+"<br><br>"+"온도: " + NowTemp +" " + WeatherCast+"<br>"+"자외선 지수: " + TodayUV+"<br>"+"미세먼지 농도: " + FineDust+"<br>"+"초미세먼지 농도: " + UltraFineDust
++        elif time=='tomorrow' :
++            resultMsg= "["+location+"]"+" 내일 날씨 정보는 아래와 같습니다." + "<br><br>" +"오전"+"<br>" + "온도: " + tomorrowMoring + " "+ tomorrowMState + "<br>" + "오후"+"<br>"+"온도: " + tomorrowAfter+" " +tomorrowAState
++
++        return jsonify({'code': code , 'location': location, 'msg':resultMsg})
+Index: static/chatbot.js
+===================================================================
+diff --git a/static/chatbot.js b/static/chatbot.js
+deleted file mode 100644
+--- a/static/chatbot.js	(revision dc1335a4f9ce3205870be281516e339a14e0c850)
++++ /dev/null	(revision dc1335a4f9ce3205870be281516e339a14e0c850)
+@@ -1,43 +0,0 @@
+-function sendMessage(message) {
+-        console.log('입력메시지:',message)
+-
+-
+-        $.ajax({url:"/message",data:{'message': message},type:'post',success:receiveResponse})
+-
+-        //flask서버로부터 응답을 받으면 receiveResponse콜백함수가 호출됨
+-        function receiveResponse(data) {//data는 flask로부터 받은 응답 {'message':'다이얼로그플로우가 보내준값'}
+-          //chat-container에 bot의 응답 추가
+-          $('.chat-container').append(`
+-                <div class="chat-message col-md-5 bot-message">
+-                    ${data.message}
+-                </div>
+-          `)
+-          //스크롤바 아래로
+-          $(".chat-container").scrollTop($(".chat-container")[0].scrollHeight);
+-
+-             console.log('받은 메시지:',data)
+-        }
+-    }
+-$("#query").on('keypress',function(e) {
+-
+-    if (e.keyCode == 13){
+-        //e.preventDefault();
+-        var query = $(this).val()
+-        console.log(query)
+-        if (!query) {//텍스트를 입력하지 않는 경우
+-          return
+-        }
+-        //chat-container에 사용자의 응답 추가
+-        $('.chat-container').append(`
+-            <div class="chat-message col-md-5 offset-md-7 human-message">
+-                ${query}
+-            </div>
+-        `)
+-        // 입력창 클리어
+-        $('#query').val('')
+-        //스크롤바 아래로
+-        $(".chat-container").scrollTop($(".chat-container")[0].scrollHeight);
+-        //메시지 전송
+-        sendMessage(query)
+-    }
+-});
+\ No newline at end of file
+Index: static/style.css
+===================================================================
+diff --git a/static/style.css b/static/style.css
+deleted file mode 100644
+--- a/static/style.css	(revision dc1335a4f9ce3205870be281516e339a14e0c850)
++++ /dev/null	(revision dc1335a4f9ce3205870be281516e339a14e0c850)
+@@ -1,41 +0,0 @@
+-body,html {
+-  height: 100%;
+-}
+-
+-.chat-container {
+-  /*margin: 0px;*/
+-  padding: 0px;
+-  width: 500px;
+-  /*margin: 35px 0px;*/
+-  margin-left: 15%;
+-  margin-right: 15%;
+-}
+-
+-.chat-message {
+-  padding: 6px;
+-  border-radius: 10px;
+-  margin-bottom: 5px;
+-}
+-
+-.bot-message {
+-  background: #4682B4;
+-  max-width: 200px;
+-  color: white;
+-  margin-right: auto;
+-
+-}
+-
+-.human-message {
+-  background: #4B0082;
+-  max-width: 200px;
+-  color: white;
+-  margin-left: auto;
+-}
+-
+-.input {
+-  width: 500px;
+-  /*margin: 35px 0px;*/
+-  margin-left: 15%;
+-  margin-right: 15%;
+-   border-radius: 5px;
+-  }
+\ No newline at end of file
+Index: .idea/workspace.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<project version=\"4\">\r\n  <component name=\"ChangeListManager\">\r\n    <list default=\"true\" id=\"4bce97b3-ded0-4044-88bb-cdd97f3ddbc3\" name=\"Default Changelist\" comment=\"\">\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/.gitignore\" beforeDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/.name\" beforeDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/ShoongFlask.iml\" beforeDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml\" beforeDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/misc.xml\" beforeDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/modules.xml\" beforeDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/app.py\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/app.py\" afterDir=\"false\" />\r\n    </list>\r\n    <option name=\"SHOW_DIALOG\" value=\"false\" />\r\n    <option name=\"HIGHLIGHT_CONFLICTS\" value=\"true\" />\r\n    <option name=\"HIGHLIGHT_NON_ACTIVE_CHANGELIST\" value=\"false\" />\r\n    <option name=\"LAST_RESOLUTION\" value=\"IGNORE\" />\r\n  </component>\r\n  <component name=\"Git.Settings\">\r\n    <option name=\"RECENT_GIT_ROOT_PATH\" value=\"$PROJECT_DIR$\" />\r\n  </component>\r\n  <component name=\"ProjectId\" id=\"1nlQPYS9YOTqAGKgJwU9pvLGuOt\" />\r\n  <component name=\"ProjectViewState\">\r\n    <option name=\"hideEmptyMiddlePackages\" value=\"true\" />\r\n    <option name=\"showLibraryContents\" value=\"true\" />\r\n  </component>\r\n  <component name=\"PropertiesComponent\">\r\n    <property name=\"RunOnceActivity.OpenProjectViewOnStart\" value=\"true\" />\r\n    <property name=\"RunOnceActivity.ShowReadmeOnStart\" value=\"true\" />\r\n  </component>\r\n  <component name=\"SpellCheckerSettings\" RuntimeDictionaries=\"0\" Folders=\"0\" CustomDictionaries=\"0\" DefaultDictionary=\"application-level\" UseSingleDictionary=\"true\" transferred=\"true\" />\r\n  <component name=\"TaskManager\">\r\n    <task active=\"true\" id=\"Default\" summary=\"Default task\">\r\n      <changelist id=\"4bce97b3-ded0-4044-88bb-cdd97f3ddbc3\" name=\"Default Changelist\" comment=\"\" />\r\n      <created>1611962173489</created>\r\n      <option name=\"number\" value=\"Default\" />\r\n      <option name=\"presentableId\" value=\"Default\" />\r\n      <updated>1611962173489</updated>\r\n    </task>\r\n    <servers />\r\n  </component>\r\n  <component name=\"Vcs.Log.Tabs.Properties\">\r\n    <option name=\"TAB_STATES\">\r\n      <map>\r\n        <entry key=\"MAIN\">\r\n          <value>\r\n            <State />\r\n          </value>\r\n        </entry>\r\n      </map>\r\n    </option>\r\n  </component>\r\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/workspace.xml b/.idea/workspace.xml
+--- a/.idea/workspace.xml	(revision dc1335a4f9ce3205870be281516e339a14e0c850)
++++ b/.idea/workspace.xml	(date 1612610987668)
+@@ -1,14 +1,11 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+ <project version="4">
+   <component name="ChangeListManager">
+-    <list default="true" id="4bce97b3-ded0-4044-88bb-cdd97f3ddbc3" name="Default Changelist" comment="">
+-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
+-      <change beforePath="$PROJECT_DIR$/.idea/.name" beforeDir="false" />
+-      <change beforePath="$PROJECT_DIR$/.idea/ShoongFlask.iml" beforeDir="false" />
+-      <change beforePath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" beforeDir="false" />
+-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" />
+-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
++    <list default="true" id="4bce97b3-ded0-4044-88bb-cdd97f3ddbc3" name="Default Changelist" comment="전별 테스트&#10;전별 테스트2">
++      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+       <change beforePath="$PROJECT_DIR$/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/app.py" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/static/chatbot.js" beforeDir="false" />
++      <change beforePath="$PROJECT_DIR$/static/style.css" beforeDir="false" />
+     </list>
+     <option name="SHOW_DIALOG" value="false" />
+     <option name="HIGHLIGHT_CONFLICTS" value="true" />
+@@ -16,6 +13,11 @@
+     <option name="LAST_RESOLUTION" value="IGNORE" />
+   </component>
+   <component name="Git.Settings">
++    <option name="RECENT_BRANCH_BY_REPOSITORY">
++      <map>
++        <entry key="$PROJECT_DIR$" value="test_JB" />
++      </map>
++    </option>
+     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+   </component>
+   <component name="ProjectId" id="1nlQPYS9YOTqAGKgJwU9pvLGuOt" />
+@@ -26,6 +28,8 @@
+   <component name="PropertiesComponent">
+     <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
+     <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
++    <property name="last_opened_file_path" value="$USER_HOME$/Desktop/파이썬/파이썬1.3이후/챗봇/IRPABot" />
++    <property name="settings.editor.selected.configurable" value="editor.preferences.fonts.default" />
+   </component>
+   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+   <component name="TaskManager">
+@@ -36,6 +40,21 @@
+       <option name="presentableId" value="Default" />
+       <updated>1611962173489</updated>
+     </task>
++    <task id="LOCAL-00001" summary="전별 테스트">
++      <created>1611962670703</created>
++      <option name="number" value="00001" />
++      <option name="presentableId" value="LOCAL-00001" />
++      <option name="project" value="LOCAL" />
++      <updated>1611962670703</updated>
++    </task>
++    <task id="LOCAL-00002" summary="전별 테스트&#10;전별 테스트2">
++      <created>1611964335358</created>
++      <option name="number" value="00002" />
++      <option name="presentableId" value="LOCAL-00002" />
++      <option name="project" value="LOCAL" />
++      <updated>1611964335358</updated>
++    </task>
++    <option name="localTasksCounter" value="3" />
+     <servers />
+   </component>
+   <component name="Vcs.Log.Tabs.Properties">
+@@ -49,4 +68,9 @@
+       </map>
+     </option>
+   </component>
++  <component name="VcsManagerConfiguration">
++    <MESSAGE value="전별 테스트" />
++    <MESSAGE value="전별 테스트&#10;전별 테스트2" />
++    <option name="LAST_COMMIT_MESSAGE" value="전별 테스트&#10;전별 테스트2" />
++  </component>
+ </project>
+\ No newline at end of file
